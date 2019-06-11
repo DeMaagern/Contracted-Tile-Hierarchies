@@ -56,5 +56,5 @@ Just open the index.html to open the client environment.
 
 ## Documentation
 
-All code is documented and not minified.
+All code is rudimentary documented and not minified.
 
