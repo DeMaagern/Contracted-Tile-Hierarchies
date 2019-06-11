@@ -1,16 +1,26 @@
 {
-  "name": "webserver",
+  "name": "routable-ch-tiles",
   "version": "1.0.0",
-  "description": "",
-  "main": "app.js",
+  "description": "Source folder for all things concerning the creation of contraction hierarchies for the Routable tiles application.",
+  "main": "app-es5.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "babel ./app.js -o ./app-es5.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.ilabt.imec.be/lodi-students-18-19/routable-ch-tiles.git"
   },
   "author": "",
   "license": "ISC",
+  "devDependencies": {
+    "@babel/cli": "^7.2.3",
+    "@babel/core": "^7.3.4",
+    "babel-preset-env": "^1.7.0"
+  },
   "dependencies": {
-    "express": "^4.16.4",
-    "fs": "0.0.1-security",
-    "request": "^2.88.0"
+    "jquery": "^3.4.1",
+    "load-json-file": "^6.0.0",
+    "tiles-in-bbox": "^1.0.2",
+    "tinyqueue": "^2.0.2"
   }
 }

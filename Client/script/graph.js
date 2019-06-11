@@ -1,263 +1,62 @@
-var $ = require('jquery');
-const TinyQueue = require('tinyqueue');
-const loadJsonFile = require('load-json-file');
-var express = require('express'),
-  app = express(),
-  port = process.env.PORT || 5050;
-var request = require('request');
-var fs = require('fs');
-app.use(function(req, res, next) {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-  next();
-});
+// Merge 2 JSON objects together
+function mergeJson(object, property, object2, property2){
+  Object.assign(object[property], object2[property2]);
+  return object;
+}
 
-app.listen(port);
+// Compare function used by the priorityQueue
+function edgeDifferenceCompareFunction(a, b){
+  //return a.edgeDifference < b.edgeDifference ? -1 : a.edgeDifference > b.edgeDifference ? 1 : 0;
+  return a.edgeDifference < b.edgeDifference ? -1 : a.edgeDifference > b.edgeDifference ? 1 : 0;
+}
 
-console.log('RESTful API server started on: ' + port);
-
-app.get('/tiles/:z/:x/:y', function(req, res){
-  res.set('Cache-Control', 'max-age=300');
-  log("Request received");
-  var filename = getContractedTile(parseInt(req.params.x), parseInt(req.params.y), parseInt(req.params.z), res);
-  log("Filename received: " + filename);
-  if(filename == undefined){
-    log("File was not fetched", "error");
-    res.status(404).end();
-  }
-  else{
-    log("File is going to be downloaded");
-    res.download(filename);
-  }
-  log("-----\n");
-});
-
-// Retreive the filename for a specific tile
-function getContractedTile(x, y, z, res){
-  log("Z-niveau: " + z);
-  var file = __dirname + "/tiles/" + z + "/" + x + "-" + y + ".json";
-  log(file);
-
-  if (fs.existsSync(file)) {
-    //file exists
-    log("File exists");
-    return file;
-  }
-  else {
-    if(z == 14){
-      log("Zoomlevel 14!");
-      var URL = "https://tiles.openplanner.team/planet/" + z + "/" + x + "/" + y;
-      log("Sending request");
-      request(URL, function(error, resp, body){
-        log("Response received");
-        if(!error && resp.statusCode == 200){
-          log("Success response");
-          writeToFile("tiles/", z + "/" + x + "-" + y + ".json", body);
-        }
-
-        else{
-          log("Fetch failed: " + error + " - " + resp.statusCode);
-          response.status(404).end();
-        }
-      });
-      res.status(404).end();
+function compareWithZoomLevelPriority(a, b){
+  if(a.zoomLevel != undefined && b.zoomLevel != undefined){
+    if(a.zoomLevel < b.zoomLevel){
+      return -1;
+    }
+    else if(a.zoomLevel > b.zoomLevel){
+      return 1;
     }
     else {
-
-      var startTime = Date.now();
-
-      log("Getting subtile");
-      var file1 = getContractedTile(x*2, y*2, z+1);
-      var file2 = getContractedTile((x*2)+1, y*2, z+1);
-      var file3 = getContractedTile(x*2, (y*2)+1, z+1);
-      var file4 = getContractedTile((x*2)+1, (y*2)+1, z+1);
-
-      var json1;
-      var json2;
-      var json3;
-      var json4;
-
-      log(file1);
-      log(file2);
-      log(file3);
-      log(file4);
-
-      if(!file1 || !file2 || !file3 || !file4){
-        log("One or more files are not accessible or do not exist");
-        return undefined;
-      }
-
-      var fetchSubtilesTime = Date.now();
-
-      var json1 = loadJsonFile.sync(file1);
-      var json2 = loadJsonFile.sync(file2);
-      var json3 = loadJsonFile.sync(file3);
-      var json4 = loadJsonFile.sync(file4);
-
-      var graph1 = new Graph(true, false);
-      parseTileAndAddToGraph(graph1, json1, x*2, y*2, z+1);
-
-      var graph2 = new Graph(true, false);
-      parseTileAndAddToGraph(graph2, json2, (x*2)+1, y*2, z+1);
-
-      var graph3 = new Graph(true, false);
-      parseTileAndAddToGraph(graph3, json3, x*2, (y*2)+1, z+1);
-
-      var graph4 = new Graph(true, false);
-      parseTileAndAddToGraph(graph4, json4, (x*2)+1, (y*2)+1, z+1);
-
-      var processSubtilesTime = Date.now();
-
-      var graph = new Graph(true, false);
-
-
-
-      graph.addGraphToGraph(graph1);
-      graph.addGraphToGraph(graph2);
-      graph.addGraphToGraph(graph3);
-      graph.addGraphToGraph(graph4);
-
-      var mergeTilesTime = Date.now();
-
-      if(z == 13){
-        graph.simplifyGraph();
-      }
-
-      if(z < 12){
-        graph.getRemaining();
-      }
-
-      var simplifyTime = Date.now();
-
-      var centerLon = tile2long(x, z);
-      var centerLat = tile2lat(y, z);
-
-      var rightLon = tile2long(x+1, z);
-      var bottomLat = tile2lat(y+1, z);
-
-      log("Edge difference");
-      graph.calculateEdgeDifference();
-      var edgeDifferenceTime = Date.now();
-      log("Contract");
-      graph.contractGraph(z);
-      var contractTime = Date.now();
-      log("Contraction complete");
-
-      // Save file
-      var result = writeToFile("tiles", z + "/" + x + "-" + y + ".json", JSON.stringify(graph.exportToJson(x, y, z)));
-      var endTime = Date.now();
-
-      console.log("Zoom level: " + z);
-      console.log("fetchSubtilesTime:   " + (fetchSubtilesTime - startTime) + " ms");
-      console.log("processSubtilesTime: " + (processSubtilesTime - fetchSubtilesTime) + " ms");
-      console.log("mergeTilesTime:      " + (mergeTilesTime - processSubtilesTime) + " ms");
-      console.log("simplifyTime:        " + (simplifyTime - mergeTilesTime) + " ms");
-      console.log("edgeDifferenceTime:  " + (edgeDifferenceTime - simplifyTime) + " ms");
-      console.log("contractTime:        " + (contractTime - edgeDifferenceTime) + " ms");
-      console.log("endTime:             " + (endTime - contractTime) + " ms");
-      console.log("-----------------------------");
-
-      return "tiles/" + z + "/" + x + "-" + y + ".json";
+      return a.totalWeight < b.totalWeight ? -1 : a.totalWeight > b.totalWeight ? 1 : 0;
     }
+  }
+  if(a.zoomLevel != undefined && b.zoomLevel == undefined){
+    return -1;
+  }
+  if(a.zoomLevel == undefined && b.zoomLevel != undefined){
+    return 1;
+  }
+  else {
+    return 0;
   }
 }
 
-// Method to print out debug information
-function log(message, severityIndex = "log"){
-  var severity = {'log': '**LOG**',
-                  'info': '**INFO**',
-                  'error': '*****ERROR*****'
-                };
-  console.log(severity[severityIndex] + ": " + message);
-}
-
-// Convert a tile x-ID and zoomlevel to longitude coordinates
-function tile2long(x,z) {
-  return (x/Math.pow(2,z)*360-180);
-}
-
-// Convert a tile y-ID and zoomlevel to latitude coordinates
-function tile2lat(y,z) {
-  var n=Math.PI-2*Math.PI*y/Math.pow(2,z);
-  return (180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n))));
-}
-
-// Write a file to disk
-function writeToFile(path, filename, data){
-  var fullPath = path + "/" + filename;
-  log("Full path name to write: " + fullPath);
-  fs.writeFileSync(fullPath, data, (err) => {
-    if (err){
-        log("Error writing file: " + fullPath + "\n\t" + err);
-        return false;
+function compareZoomLevelAndAStar(a, b){
+  if(a.zoomLevel != undefined && b.zoomLevel != undefined){
+    if(a.zoomLevel < b.zoomLevel && (a.distance + a.totalWeight) > (b.distance + b.totalWeight)*2){
+      return -1;
     }
-    log('The file has been saved!');
-    return true;
-  });
+    else if(a.zoomLevel > b.zoomLevel){
+      return 1;
+    }
+    else {
+      return (a.distance + a.totalWeight) < (b.distance + b.totalWeight) ? -1 : (a.distance + a.totalWeight) > (b.distance + b.totalWeight) ? 1 : 0;
+    }
+  }
+  if(a.zoomLevel != undefined){
+    return -1;
+  }
+  if(b.zoomLevel != undefined){
+    return 1;
+  }
+  if((a.distance + a.totalWeight) < (b.distance + b.totalWeight)) {
+    return -1;
+  }
+  return 1;
 }
 
-// Parse a JSON object and add it to a graph structure
-function parseTileAndAddToGraph(graaf, jsonData, x, y, z){
-  var long = tile2long(x, z);
-  var lat = tile2lat(y, z);
-  var long2 = tile2long(x+1, z);
-  var lat2 = tile2lat(y+1, z);
-  var countOutside = 0;
-  jsonData["@graph"].forEach(function(elem){
-    if(elem["geo:long"] || elem["@type"] == "osm:Node" || elem["@type"] == "osm:node"){
-      if(!graaf.nodes[elem["@id"]]){
-        var xCoo = elem["geo:long"];
-        var yCoo = elem["geo:lat"];
-        var n;
-        if(isBetween(parseFloat(long), parseFloat(long2), xCoo) && isBetween(lat, lat2, yCoo)) {
-          n = new Node(elem["@id"], xCoo, yCoo, true);
-        }
-        else {
-          n = new Node(elem["@id"], xCoo, yCoo, false);
-          countOutside++;
-        }
-        graaf.addNode(n);
-      }
-    }
-    if(elem["@type"] == "osm:Way" || elem["@type"] == "osm:way" || elem["@type"] == "rt:shortcut"){
-      var nodesOnWay = [];
-      if(elem["osm:nodes"]){
-        nodesOnWay.push.apply(nodesOnWay, elem["osm:nodes"]);
-      }
-      if(elem["osm:hasNodes"]){
-        nodesOnWay.push.apply(nodesOnWay, elem["osm:hasNodes"]);
-      }
-      for(var i = 0; i < nodesOnWay.length - 1; i++){
-        if(!graaf.edges[elem["@id"]]){
-          var n1 = graaf.nodes[nodesOnWay[i+1]];
-          var n2 = graaf.nodes[nodesOnWay[i]];
-          var distance = parseInt(haversineDistance(n1.x, n1.y, n2.x, n2.y));
-          if(elem["osm:oneway"] != "osm:yes" && elem["osm:oneWay"] != "osm:yes"){
-            var e2 = new Edge(nodesOnWay[i+1], nodesOnWay[i], distance);
-            if(elem["@type"] == "osm:Way"){
-              e2.osmId = elem["@id"];
-            }
-            if(elem["rt:zoomLevel"]){
-              e2.zoomLevel = elem["rt:zoomLevel"];
-            }
-            graaf.addEdge(e2);
-          }
-          var e1 = new Edge(nodesOnWay[i], nodesOnWay[i+1], distance);
-          if(elem["@type"] == "osm:Way"){
-            e1.osmId = elem["@id"];
-          }
-          if(elem["rt:zoomLevel"]){
-            e1.zoomLevel = elem["rt:zoomLevel"];
-          }
-          graaf.addEdge(e1);
-        }
-      }
-    }
-  });
-  log("Outside nodes: " + countOutside);
-}
-
-// Calculates the distance between 2 longitude and latitude coordinates on a globe surface
 function haversineDistance(lon1, lat1, lon2, lat2) {
   function toRad(x) {
     return x * Math.PI / 180;
@@ -276,39 +75,6 @@ function haversineDistance(lon1, lat1, lon2, lat2) {
   var d = R * c;
 
   return d*1000;
-}
-
-// Checks if a point lies in betweeen a certain start & endpoint. Start or end may be negative
-function isBetween(begin, end, point){
-  var margin = 0;
-  if(begin <= end){
-    // Begin + size
-    if(point >= (begin + margin) && point <= (end - margin)){
-      return true;
-    }
-  }
-  if(end <= begin){
-    // Begin - size
-    if(point >= (end + margin) && point <= (begin - margin)){
-      return true;
-    }
-  }
-  return false;
-}
-
-// Merge 2 JSON objects together
-function mergeJson(object, property, object2, property2){
-  Object.assign(object[property], object2[property2]);
-  return object;
-}
-
-// Compare function used by the priorityQueue
-function edgeDifferenceCompareFunction(a, b){
-  return a.edgeDifference < b.edgeDifference ? -1 : a.edgeDifference > b.edgeDifference ? 1 : 0;
-}
-
-function weightCompare(a, b) {
-    return a.totalWeight < b.totalWeight ? -1 : a.totalWeight > b.totalWeight ? 1 : 0;
 }
 
 class Graph {
@@ -505,7 +271,7 @@ class Graph {
     // DiscoveredCount keeps track on the amount of nodes that are pushed to the queue.
     var discoveredCount = 0;
     // Make a queue
-    var queue = new TinyQueue([], weightCompare);
+    var queue = new TinyQueue([]);
     // Discovered collection
     var discovered = {};
     if(nodeToSkip){
@@ -572,8 +338,8 @@ class Graph {
   // Bidirectional Dijkstra implementation
   ShortestPathBiDirectional(startId, endId, nodeToSkip = undefined){
     var discoveredCount = 0;
-    var startQueue = new TinyQueue([], weightCompare);
-    var endQueue = new TinyQueue([], weightCompare);
+    var startQueue = new TinyQueue([], compareZoomLevelAndAStar);
+    var endQueue = new TinyQueue([], compareZoomLevelAndAStar);
 
     var startDiscovered = {};
     var endDiscovered = {};
@@ -774,14 +540,12 @@ class Graph {
   // Contract the current Graph
   contractGraph(zoomLevel){
     var contracted = {};
+    this.log(this.nodes);
     var queue = new TinyQueue(Object.values(this.nodes), edgeDifferenceCompareFunction);
     var counter = queue.length;
     this.log("Starting contraction - count: " + counter);
     while(queue.length > 0){
       var topNode = queue.pop();
-      if(queue.length % 100 == 0){
-        this.log("Remaining: " + queue.length);
-      }
 
       // Contract the node
       this.log("Contracting " + topNode.id + " with an edge difference of " + topNode.edgeDifference);
@@ -938,7 +702,7 @@ class Graph {
     var remainingNodes = {};
     var remainingNeighbours = {};
 
-    this.log("Before: " + Object.keys(this.nodes).length);
+    console.log("Before: " + Object.keys(this.nodes).length);
 
     for(var nodeId in this.nodes){
       var node = this.nodes[nodeId];
@@ -951,7 +715,7 @@ class Graph {
       }
     }
 
-    this.log("Remaining count after stage 1: " + Object.keys(remainingNodes).length);
+    console.log("Remaining count after stage 1: " + Object.keys(remainingNodes).length);
     var countFailed = 0;
     var shortestPathNodes = {};
     for(var nodeId1 in remainingNodes){
@@ -971,11 +735,11 @@ class Graph {
         }
       }
     }
-    this.log("Failed attempts: " + countFailed);
+    console.log("Failed attempts: " + countFailed);
 
     remainingNodes = Object.assign({}, remainingNodes, shortestPathNodes, remainingNeighbours);
 
-    this.log("Remaining count after stage 2: " + Object.keys(remainingNodes).length);
+    console.log("Remaining count after stage 2: " + Object.keys(remainingNodes).length);
 
     // Iterate all shortcut-edges and see which nodes are still remaining
     for(var edgeId in this.edges){
@@ -987,14 +751,14 @@ class Graph {
       }
     }
 
-    this.log("Remaining count after stage 3: " + Object.keys(remainingNodes).length);
+    console.log("Remaining count after stage 3: " + Object.keys(remainingNodes).length);
 
     for(var nodeId in this.nodes){
       if(!remainingNodes[nodeId]){
         this.removeNode(nodeId);
       }
     }
-    this.log("After: " + Object.keys(this.nodes).length);
+    console.log("After: " + Object.keys(this.nodes).length);
   }
 }
 
@@ -1008,6 +772,7 @@ class Node {
     this.edges = {};
     this.edges.forward = {};
     this.edges.reverse = {};
+    //this.contractedLevel = 0;
     this.timesUpdated = 0;
     this.updateVersion = 0;
     this.isContractable = contractable;
@@ -1021,6 +786,7 @@ class Node {
     this.edges = {};
     this.edges.forward = JSON.parse(JSON.stringify(node.edges.forward));
     this.edges.reverse = JSON.parse(JSON.stringify(node.edges.reverse));
+    //this.contractedLevel = node.contractedLevel;
     this.timesUpdated = node.timesUpdated;
     if(node.edgeDifference){
       this.edgeDifference = node.edgeDifference;
@@ -1032,8 +798,8 @@ class Node {
     var exported = {};
     exported["@type"] = "osm:Node";
     exported["@id"] = this.id;
-		exported["geo:long"] = this.x;
-		exported["geo:lat"] = this.y;
+    exported["geo:long"] = this.x;
+    exported["geo:lat"] = this.y;
     return exported;
   }
 }
@@ -1069,10 +835,10 @@ class Edge {
     else {
       exported["@id"] = this.id;
     }
-		if(isOneWay){
+   if(isOneWay){
       exported["osm:oneway"] = "osm:yes";
     }
-		exported["osm:hasNodes"] = [this.from, this.to];
+   exported["osm:hasNodes"] = [this.from, this.to];
     if(this.contracts != ""){
       exported["rt:shortcut"] = this.contracts;
       exported["@type"] = "rt:shortcut";
