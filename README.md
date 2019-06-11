@@ -43,16 +43,16 @@ Just open the index.html to open the client environment.
 
 ## Structure
 
-Client:
-    node_modules
-    script
-    style
-Webserver:
-    node_modules
-    tiles
-        14
-        13
-        ...
+- Client:
+    * node_modules
+    * script
+    * style
+- Webserver:
+    * node_modules
+    * tiles
+        - 14
+        - 13
+        - ...
 
 ## Documentation
 
