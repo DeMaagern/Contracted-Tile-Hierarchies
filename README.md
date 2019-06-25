@@ -43,30 +43,18 @@ Just open the index.html to open the client environment.
 
 ## Structure
 
-├── Client
-│   ├── node_modules
-│   ├── script
-│   └── style
-└── Webserver
-    ├── node_modules
-    └── tiles
-        ├── 0
-        ├── 1
-        ├── 2
-        ├── 3
-        ├── 4
-        ├── 5
-        ├── 6
-        ├── 7
-        ├── 8
-        ├── 9
-        ├── 10
-        ├── 11
-        ├── 12
-        ├── 13
-        └── 14
+- Client:
+    * node_modules
+    * script
+    * style
+- Webserver:
+    * node_modules
+    * tiles
+        - 14
+        - 13
+        - ...
 
 ## Documentation
 
-All code is documented and not minified.
+All code is rudimentary documented and not minified.
 
